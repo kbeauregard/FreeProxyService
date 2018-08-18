@@ -110,4 +110,4 @@ def proxied_request(url, region=None, **kwargs):
     kwargs['proxies'] = {
         'http': proxy,
     }
-    return request(kwargs.pop('method'), url, **kwargs)
+    return request(kwargs.pop('method'), url, **kwargs), proxy
