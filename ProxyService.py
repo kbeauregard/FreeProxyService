@@ -1,6 +1,6 @@
 import threading
 import random
-import requests
+from requests import request, get
 from datetime import datetime
 from pymongo import MongoClient
 from .extraction import extract_freeproxy_page
@@ -18,7 +18,7 @@ def proxy_healthy(proxy):
         'https': proxy
     }
     try:
-        resp = requests.get(ping_url, timeout=2, proxies=proxies)
+        resp = get(ping_url, timeout=2, proxies=proxies)
         return resp.status_code == 200
     except Exception as e:
         print(str(e))
@@ -101,3 +101,13 @@ class ProxyService:
                 if delete:
                     self.proxy_manager.delete_proxy(proxy)
                 print('Proxy %s Failed' % proxy_address)
+
+
+def proxied_request(url, region=None, **kwargs):
+    ps = ProxyService()
+    url = url.replace('https:', 'http:')
+    proxy = ps.get_random_proxy(region)
+    kwargs['proxies'] = {
+        'http': proxy,
+    }
+    return request(kwargs.pop('method'), url, **kwargs)
