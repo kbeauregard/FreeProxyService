@@ -3,7 +3,7 @@ import random
 import requests
 from datetime import datetime
 from pymongo import MongoClient
-from extraction import extract_freeproxy_page
+from .extraction import extract_freeproxy_page
 
 
 def chunks(l, n):
