@@ -23,5 +23,6 @@ def extract_freeproxy_page():
             'google': data[5].text_content().lower(),
             'https': data[6].text_content().lower(),
             'last_checked': '',
+            'jailed': False,
         }]
     return proxies

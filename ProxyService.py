@@ -48,14 +48,22 @@ class ProxyManager:
     def get_proxies(self, _filter={}):
         return list(self.db.proxies.find(_filter))
 
+    def get_proxy(self, proxy):
+        return self.db.proxies.find_one({'ip': proxy['ip']})
+
+    def jail_proxy(self, proxy):
+        self.db.proxies.update_one({'ip': proxy['ip']}, {'$set': {'jailed': True, 'last_jailed': datetime.now()}})
+
+    def unjail_proxy(self, proxy):
+        self.db.proxies.update_one({'ip': proxy['ip']}, {'$set': {'jailed': False, 'last_unjailed': datetime.now()}})
+
 
 class ProxyService:
     def __init__(self):
         self.proxy_manager = ProxyManager()
-        self._load_proxies()
 
     def refresh_proxies(self):
-        self.check_proxies(self.proxies, delete=True)
+        self.check_proxies(jail=True)
         self.update_proxy_list()
 
     def update_proxy_list(self):
@@ -64,32 +72,34 @@ class ProxyService:
             print('Failed to download proxies.')
             return
         self.check_proxies(_proxies, insert=True)
-        self._load_proxies()
 
-    def _load_proxies(self):
-        self.proxies = self.proxy_manager.get_proxies()
-
-    def get_proxies(self, nothing=None):
-        return self.proxies
+    def get_proxies(self, _filter={}):
+        _filter['jailed'] = False
+        return self.proxy_manager.get_proxies(_filter)
 
     def get_proxies_by_region(self, region):
         key = 'code' if len(region) < 3 else 'country'
-        return [proxy for proxy in self.proxies if proxy[key] == region.lower()]
+        return self.proxy_manager.get_proxies({key: region.lower(), 'jailed': False})
 
-    def get_random_proxy(self, region=None):
+    def get_random_proxy(self, region={}):
+        # No idea why but it doesn't work without this, somehow region = {'jailed': False} when called with no args
+        if 'jailed' in region:
+            region.pop('jailed')
         proxy_str = '{}:{}'
         func = self.get_proxies_by_region if region else self.get_proxies
         proxies = func(region)
         proxy = random.choice(proxies)
         return proxy_str.format(proxy['ip'], proxy['port'])
 
-    def check_proxies(self, proxies, insert=False, delete=False, concurrency=20):
+    def check_proxies(self, proxies=None, insert=False, jail=False, concurrency=20):
+        if not proxies:
+            proxies = self.proxy_manager.get_proxies()
         chunk_size = int(len(proxies) / concurrency)
         proxy_groups = list(chunks(proxies, chunk_size))
         for group in proxy_groups:
-            threading.Thread(target=self._check_proxies, args=(group, insert, delete, )).start()
+            threading.Thread(target=self._check_proxies, args=(group, insert, jail, )).start()
 
-    def _check_proxies(self, proxies, insert=False, delete=False):
+    def _check_proxies(self, proxies, insert=False, jail=False):
         for proxy in proxies:
             proxy_str = '{}:{}'
             proxy_address = proxy_str.format(proxy['ip'], proxy['port'])
@@ -97,11 +107,18 @@ class ProxyService:
                 proxy['last_checked'] = datetime.now()
                 if insert:
                     self.proxy_manager.insert_proxy(proxy)
-                print('Proxy %s Passed' % proxy_address)
+                    print('Proxy %s Inserted' % proxy_address)
+                elif proxy.get('jailed'):
+                    self.proxy_manager.unjail_proxy(proxy)
+                    print('Proxy %s Unjailed' % proxy_address)
+                else:
+                    print('Proxy %s Passed' % proxy_address)
             else:
-                if delete:
-                    self.proxy_manager.delete_proxy(proxy)
-                print('Proxy %s Failed' % proxy_address)
+                if jail:
+                    self.proxy_manager.jail_proxy(proxy)
+                    print('Proxy %s Jailed' % proxy_address)
+                else:
+                    print('Proxy %s Failed' % proxy_address)
 
 
 def proxied_request(url, region=None, **kwargs):
