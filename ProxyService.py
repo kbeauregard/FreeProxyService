@@ -18,8 +18,9 @@ def proxy_healthy(proxy):
         'https': proxy
     }
     try:
-        resp = get(ping_url, timeout=2, proxies=proxies)
-        return resp.status_code == 200
+        resp = get(ping_url, timeout=3, proxies=proxies)
+        resp2 = get(ping_url, timeout=3, proxies=proxies)
+        return resp.status_code == 200 or resp2.status_code == 200
     except Exception as e:
         print(str(e))
         return False
