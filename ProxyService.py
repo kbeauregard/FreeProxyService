@@ -4,27 +4,45 @@ from time import sleep
 from requests import request, get
 from datetime import datetime
 from pymongo import MongoClient
-from .extraction import extract_freeproxy_page
+from ManyRequests.WebRunner import WebRunner
+from extraction import extract_freeproxy_page
+from multiprocessing import Process
+
+
+def health_service(minutes=15):
+    proxy_service = ProxyService()
+    proxy_manager = ProxyManager()
+
+    try:
+        while (True):
+            initial = len(proxy_manager.get_proxies())
+            proxy_service.check_proxies()
+            final = len(proxy_manager.get_proxies())
+            print('Number of healthy proxies changed by %s.' % (
+                        final - initial))
+            sleep(minutes * 60)
+    except:
+        print("Shutting down health service.")
+
+
+def extractor_service(minutes=5):
+    proxy_service = ProxyService()
+    proxy_manager = ProxyManager()
+
+    try:
+        while (True):
+            initial = len(proxy_manager.get_proxies())
+            proxy_service.update_proxy_list()
+            final = len(proxy_manager.get_proxies())
+            print('Added %s new proxies.' % (final - initial))
+            sleep(minutes * 60)
+    except:
+        print("Shutting down extractor service.")
 
 
 def chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
-
-
-def proxy_healthy(proxy):
-    ping_url = 'http://www.google.com'
-    proxies = {
-        'http': proxy,
-        'https': proxy
-    }
-    try:
-        resp = get(ping_url, timeout=3, proxies=proxies)
-        resp2 = get(ping_url, timeout=3, proxies=proxies)
-        return resp.status_code == 200 or resp2.status_code == 200
-    except Exception as e:
-        print(str(e))
-        return False
 
 
 class ProxyManager:
@@ -64,7 +82,7 @@ class ProxyService:
         self.proxy_manager = ProxyManager()
 
     def refresh_proxies(self):
-        self.check_proxies(jail=True)
+        self.check_proxies()
         self.update_proxy_list()
 
     def update_proxy_list(self):
@@ -72,7 +90,7 @@ class ProxyService:
         if len(_proxies) == 0:
             print('Failed to download proxies.')
             return
-        self.check_proxies(_proxies, insert=True)
+        self.health_check(_proxies)
 
     def get_proxies(self, _filter={}):
         _filter['jailed'] = False
@@ -92,34 +110,38 @@ class ProxyService:
         proxy = random.choice(proxies)
         return proxy_str.format(proxy['ip'], proxy['port'])
 
-    def check_proxies(self, proxies=None, insert=False, jail=False, concurrency=20):
-        if not proxies:
-            proxies = self.proxy_manager.get_proxies()
-        chunk_size = int(len(proxies) / concurrency)
-        proxy_groups = list(chunks(proxies, chunk_size))
-        for group in proxy_groups:
-            threading.Thread(target=self._check_proxies, args=(group, insert, jail, )).start()
+    def check_proxies(self):
+        self.health_check(self.proxy_manager.get_proxies())
 
-    def _check_proxies(self, proxies, insert=False, jail=False):
-        for proxy in proxies:
-            proxy_str = '{}:{}'
-            proxy_address = proxy_str.format(proxy['ip'], proxy['port'])
-            if proxy_healthy(proxy_address):
-                proxy['last_checked'] = datetime.now()
-                if insert:
-                    self.proxy_manager.insert_proxy(proxy)
-                    print('Proxy %s Inserted' % proxy_address)
-                elif proxy.get('jailed'):
-                    self.proxy_manager.unjail_proxy(proxy)
-                    print('Proxy %s Unjailed' % proxy_address)
-                else:
-                    print('Proxy %s Passed' % proxy_address)
+
+    def health_check(self, proxy_list):
+        proxy_urls = ['http://%s:%s' % (proxy_dict['ip'], proxy_dict['port']) for
+                      proxy_dict in proxy_list]
+        proxies = [{'http': p, 'https': p} for p in proxy_urls]
+        ping_urls = ['http://www.google.com'] * len(proxies)
+
+        runner = WebRunner()
+        responses = runner.run(ping_urls, concurrency=100, proxies=proxies,
+                               timeout=10)
+        for proxy, response in zip(proxy_list, responses):
+            if response is None or response.status_code != 200:
+                self.jail(proxy)
             else:
-                if jail:
-                    self.proxy_manager.jail_proxy(proxy)
-                    print('Proxy %s Jailed' % proxy_address)
-                else:
-                    print('Proxy %s Failed' % proxy_address)
+                self.increase_health(proxy)
+
+
+    def jail(self, proxy):
+        self.proxy_manager.jail_proxy(proxy)
+
+
+    def increase_health(self, proxy):
+        if not self.exists(proxy):
+            self.proxy_manager.insert_proxy(proxy)
+        self.proxy_manager.unjail_proxy(proxy)
+
+
+    def exists(self, proxy):
+        return self.proxy_manager.get_proxy(proxy) is not None
 
 
 def proxied_request(url, region=None, **kwargs):
@@ -130,3 +152,14 @@ def proxied_request(url, region=None, **kwargs):
         'http': proxy,
     }
     return request(kwargs.pop('method'), url, **kwargs), proxy
+
+
+def start_service():
+    hs = Process(target=health_service)
+    es = Process(target=extractor_service)
+    hs.start()
+    es.start()
+
+
+if __name__ == '__main__':
+    start_service()

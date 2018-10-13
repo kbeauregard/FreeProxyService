@@ -6,7 +6,7 @@ def extract_freeproxy_page():
     headers = {
         'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36')
     }
-    resp = requests.get('https://free-proxy-list.net/', headers)
+    resp = requests.get('https://free-proxy-list.net/', headers=headers)
     proxies = []
     doc = html.fromstring(resp.content)
     ip_elements = doc.xpath('//tr')
