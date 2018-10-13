@@ -45,21 +45,6 @@ def chunks(l, n):
         yield l[i:i + n]
 
 
-def proxy_healthy(proxy):
-    ping_url = 'http://www.google.com'
-    proxies = {
-        'http': proxy,
-        'https': proxy
-    }
-    try:
-        resp = get(ping_url, timeout=3, proxies=proxies)
-        resp2 = get(ping_url, timeout=3, proxies=proxies)
-        return resp.status_code == 200 or resp2.status_code == 200
-    except Exception as e:
-        print(str(e))
-        return False
-
-
 class ProxyManager:
     def __init__(self):
         self.db = MongoClient()['scylla']

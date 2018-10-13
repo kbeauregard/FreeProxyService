@@ -1,3 +1,4 @@
 lxml==4.2.1
 pymongo>=3.7.1
 requests>=2.18.4
+ManyRequests>=0.0.3
